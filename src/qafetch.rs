@@ -8,8 +8,17 @@ use bson::{Bson, oid};
 use bson::{bson, doc};
 use bson::Bson::Array;
 use bson::Document;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+
 
 use crate::qautil::{future_day, future_min, stock_day, stock_min};
+
+fn to_timestamp(date: String) -> i64{
+    Utc.datetime_from_str(format!("{} 00:00:00", date).as_str(), "%Y-%m-%d %H:%M:%S")
+    .unwrap()
+    .timestamp() -28800
+}
+
 
 pub struct QAMongoClient {
     pub uri: String,
@@ -27,13 +36,32 @@ impl QAMongoClient {
             database: db,
         }
     }
+    pub fn get_stocks_day(&mut self, code: Vec<String>, start: &str, end: &str) -> Vec<stock_day> {
+        let collection = self.database.collection("stock_day");
+        //println!("start {} end {}", start, end);
+        let filter = doc! {"code": {"$in": code},
+                                            "date_stamp": {"$gte": to_timestamp(start.to_string()), "$lte":  to_timestamp(end.to_string())}};
+        let find_options = FindOptions::builder().sort(doc!{"date_stamp":1}).build();
+        let cursor = collection.find(filter, find_options).unwrap();
+        let mut res = Vec::new();
+        for result in cursor {
+            match result {
+                Ok(document) => {
+                    let u: stock_day = bson::from_bson(bson::Bson::Document(document)).unwrap();
+                    res.push(u);
+                }
+                Err(e) => { println!("ERROR"); } //return Err(e.into()),
+            }
+        }
+        res
+    }
 
     pub fn get_stock_day(&mut self, code: &str, start: &str, end: &str) -> Vec<stock_day> {
         let collection = self.database.collection("stock_day");
 
         let filter = doc! {"code": code,
-                                            "date": {"$gte": start, "$lte": end}};
-        let find_options = FindOptions::builder().sort(doc!{"date":1}).build();
+                                            "date_stamp": {"$gte": to_timestamp(start.to_string()), "$lte":  to_timestamp(end.to_string())}};
+        let find_options = FindOptions::builder().sort(doc!{"date_stamp":1}).build();
         let cursor = collection.find(filter, find_options).unwrap();
         let mut res = Vec::new();
         for result in cursor {
@@ -131,3 +159,14 @@ impl QAMongoClient {
     // }
 }
 
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_totimestamp(){
+        println!("{:#?}",to_timestamp("2020-01-01".to_string()));
+        //assert_eq!(1577836800)
+    }
+}
